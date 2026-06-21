@@ -1,21 +1,6 @@
-# ai-engineering-bootcamp-prerequisites
+# ai-engineering-bootcamp
 
-Welcome to the prerequisites repository for the [End-to-End AI Engineering Bootcamp](https://maven.com/swirl-ai/end-to-end-ai-engineering)! This repository is dedicated to setting up your development environment and scafoling a simple project with a StreamLit UI frontend service decoupled from FastAPI server.
-
-We strongly recomend you coding along the videos available in our YouTube channel rather than just cloning the repository and running the code.
-
----
-
-[Video 1](https://youtu.be/3WsEgLtwsGs): Setting up your development environment
-
-[Video 2](https://youtu.be/cGOGA7GFecI): Build and containerise your first chatbot
-
-[Video 3](https://youtu.be/bZHaCAFAUCs): Moving the agent behind a FastAPI server
-
-[Video 4](https://youtu.be/IcbzksbMhuM): Containerising Backend and Frontend
-
----
-
+We strongly recomend you coding along the videos available on Maven platform rather than just cloning the repository and running the code.
 
 If you do need to run the code, this is how:
 
@@ -31,6 +16,7 @@ Edit `.env` and add your API keys:
 OPENAI_API_KEY=your_google_api_key
 GOOGLE_API_KEY=your_google_api_key
 GROQ_API_KEY=your_groq_api_key
+LANGSMITH_API_KEY=your_langsmith_api_key
 ```
 Keep the remaining configuration as per ```.env.example```.
 
@@ -56,3 +42,15 @@ You can also find me on:
 - 🔗 [LinkedIn](https://www.linkedin.com/in/aurimas-griciunas)
 - 🔗 [X](https://x.com/Aurimas_Gr)
 - 🔗 [Newsletter](https://www.newsletter.swirlai.com/)
+
+## This repository uses data provided by the authors of the following paper.
+If you use this work, please cite:
+
+```
+@article{hou2024bridging,
+  title={Bridging Language and Items for Retrieval and Recommendation},
+  author={Hou, Yupeng and Li, Jiacheng and He, Zhankui and Yan, An and Chen, Xiusi and McAuley, Julian},
+  journal={arXiv preprint arXiv:2403.03952},
+  year={2024}
+}
+```
