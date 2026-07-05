@@ -210,3 +210,6 @@ __marimo__/
 # Local data
 qdrant_data/
 data/
+
+# Mac files
+.DS_Store
