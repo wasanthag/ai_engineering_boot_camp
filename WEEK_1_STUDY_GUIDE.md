@@ -18,6 +18,7 @@
 5. [Evaluation Dataset](#5-evaluation-dataset)
 6. [RAG Evaluation Metrics](#6-rag-evaluation-metrics)
 7. [Production Deployment](#7-production-deployment)
+8. [Understanding: Notebooks vs Apps](#understanding-notebooks-vs-apps)
 
 ---
 
@@ -201,12 +202,33 @@ uv add "pandas>=2.0.0,<3.0.0"
 # Sync entire workspace (all members)
 uv sync --workspace
 
-# Add package to specific workspace member
-uv add --project apps/api fastapi
+# Add package to specific workspace member (library package)
+uv add --project apps/api --lib fastapi
+
+# Add package to root project
+uv add openai
 
 # Run command in workspace member
 uv run --project apps/api python -m api.app
 ```
+
+**Important: `--lib` Flag**
+
+When adding packages to workspace members like `apps/api` or `apps/chatbot_ui`, use the `--lib` flag:
+
+```bash
+# For API dependencies
+uv add --project apps/api --lib qdrant-client
+
+# For UI dependencies
+uv add --project apps/chatbot_ui --lib streamlit
+```
+
+**Why `--lib`?**
+- The `apps/api` and `apps/chatbot_ui` are **library packages** (not applications)
+- They have a `src/` layout and `[tool.hatch.build.targets.wheel]` in `pyproject.toml`
+- The `--lib` flag tells uv to add dependencies to a library package
+- Without `--lib`, uv assumes you're adding to an application package
 
 **4. Managing Dependencies**
 
@@ -465,6 +487,15 @@ embedding = response.data[0].embedding  # [0.123, -0.456, ...]
 
 ### Vector Database: Qdrant
 
+**What Qdrant Stores:**
+
+Qdrant stores **both** the embedding vector AND the original context metadata:
+
+1. **Vector:** The 1536-dimensional embedding for semantic search
+2. **Payload:** The original data (text, metadata) needed for RAG context
+
+This is crucial - you retrieve by vector similarity, but return the actual text/metadata.
+
 #### Setup
 ```python
 from qdrant_client import QdrantClient
@@ -482,15 +513,15 @@ client.create_collection(
 )
 ```
 
-#### Inserting Data
+#### Inserting Data (Vector + Payload)
 ```python
 from qdrant_client.models import PointStruct
 
 points = [
     PointStruct(
         id=i,
-        vector=get_embedding(item["preprocessed_description"]),
-        payload={
+        vector=get_embedding(item["preprocessed_description"]),  # For search
+        payload={                                                # For retrieval
             "preprocessed_description": item["description"],
             "image": item["image"],
             "rating_number": item["rating_number"],
@@ -504,6 +535,21 @@ points = [
 
 client.upsert(collection_name="Amazon-items-collection-01", points=points)
 ```
+
+**How It Works:**
+```
+User Query: "USB fan"
+    ↓
+1. Embed query → [0.123, -0.456, ...]  (1536-dim vector)
+    ↓
+2. Search Qdrant by VECTOR similarity
+    ↓
+3. Return PAYLOAD (not the vector!) → actual product descriptions
+    ↓
+4. Use payload text as RAG context for LLM
+```
+
+**Key Insight:** The vector is for finding similar items, the payload is what you actually use.
 
 #### Retrieval
 ```python
@@ -892,18 +938,36 @@ for item in synthetic_data:
 
 **RAGAS** = Retrieval-Augmented Generation Assessment
 
-#### Setup
+**Important:** RAGAS uses LLMs behind the scenes to evaluate your RAG system. It needs configuration!
+
+#### Setup and Configuration
+
+RAGAS requires:
+1. **LLM** for evaluating faithfulness and relevancy (uses GPT to judge quality)
+2. **Embeddings** for computing semantic similarity
+
 ```python
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-# Configure for RAGAS
-ragas_llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-5.4-mini"))
+# Configure LLM for RAGAS evaluation
+ragas_llm = LangchainLLMWrapper(
+    ChatOpenAI(model="gpt-5.4-mini")  # RAGAS uses this to judge quality
+)
+
+# Configure embeddings for RAGAS
 ragas_embeddings = LangchainEmbeddingsWrapper(
     OpenAIEmbeddings(model="text-embedding-3-small")
 )
 ```
+
+**What RAGAS Does with the LLM:**
+- **Faithfulness:** LLM checks if answer claims are supported by context
+- **Response Relevancy:** LLM judges if answer addresses the question
+- **Context Precision/Recall:** ID-based comparison (no LLM needed)
+
+**Cost Implication:** Each evaluation makes API calls to OpenAI! Budget accordingly.
 
 ### The 4 Core Metrics
 
@@ -1269,6 +1333,249 @@ print(results)
 ```
 
 **Run:** `python apps/api/evals/eval_retriever.py`
+
+---
+
+## Understanding: Notebooks vs Apps
+
+### The Learning Architecture
+
+This bootcamp uses a **two-phase approach**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Phase 1: NOTEBOOKS (Learning & Experimentation)            │
+│  notebooks/week_1/*.ipynb                                    │
+│  - Test concepts interactively                               │
+│  - Rapid iteration and debugging                             │
+│  - Visualize results                                         │
+│  - NOT for production                                        │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+                    Code patterns refined
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Phase 2: APPS (Production Application)                      │
+│  apps/api + apps/chatbot_ui                                  │
+│  - Structured Python packages                                │
+│  - FastAPI + Streamlit deployment                            │
+│  - Docker containerization                                   │
+│  - Production-ready code                                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Apps Folder Structure Explained
+
+```
+apps/
+├── api/                           # Backend service (FastAPI)
+│   ├── pyproject.toml             # API-specific dependencies
+│   ├── src/
+│   │   └── api/                   # Python package
+│   │       ├── __init__.py
+│   │       ├── app.py             # FastAPI application
+│   │       ├── core/              # Configuration & settings
+│   │       │   ├── config.py
+│   │       │   └── __init__.py
+│   │       ├── api/               # REST API endpoints
+│   │       │   ├── endpoints.py   # /rag endpoint
+│   │       │   ├── models.py      # RAGRequest, RAGResponse
+│   │       │   └── __init__.py
+│   │       └── agents/            # RAG pipeline implementation
+│   │           ├── retrieval_generation.py  # Same as Notebook 4!
+│   │           └── __init__.py
+│   ├── evals/
+│   │   └── eval_retriever.py      # Production evaluation script
+│   └── README.md
+│
+└── chatbot_ui/                    # Frontend service (Streamlit)
+    ├── pyproject.toml             # UI-specific dependencies
+    └── src/
+        └── chatbot_ui/            # Python package
+            ├── __init__.py
+            ├── app.py             # Streamlit chat interface
+            └── core/
+                ├── config.py
+                └── __init__.py
+```
+
+### Why Library Packages (`src/` Layout)?
+
+Both `apps/api` and `apps/chatbot_ui` use the **src layout**:
+
+```toml
+# apps/api/pyproject.toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/api"]  # Defines it as a library package
+```
+
+**Benefits:**
+1. **Importable:** Other packages can import from them
+2. **Testable:** Clean separation of source and tests
+3. **Installable:** Can be installed with `pip install -e .`
+4. **Professional:** Industry-standard Python packaging
+
+**This is why you use `uv add --lib`:**
+```bash
+# For library packages (apps/api, apps/chatbot_ui)
+uv add --project apps/api --lib fastapi
+
+# For application packages (root project)
+uv add pandas
+```
+
+### Notebooks → Apps: The Translation
+
+**Example: RAG Pipeline**
+
+**In Notebook 3 (Learning):**
+```python
+# Jupyter cell
+def rag_pipeline(question, top_k=5):
+    # ... implementation ...
+    return answer
+
+# Test it interactively
+result = rag_pipeline("Do you have USB fans?")
+print(result)
+```
+
+**In Notebook 4 (Add Observability):**
+```python
+# Add tracing
+@traceable(name="rag_pipeline")
+def rag_pipeline(question, top_k=5):
+    # ... same implementation ...
+    return answer
+```
+
+**In Production (`apps/api/src/api/agents/retrieval_generation.py`):**
+```python
+# Exact same code from Notebook 4!
+@traceable(name="rag_pipeline")
+def rag_pipeline(question: str, qdrant_client, top_k: int = 5) -> str:
+    """Production RAG pipeline with tracing."""
+    # ... identical implementation ...
+    return answer
+```
+
+**Exposed via API (`apps/api/src/api/api/endpoints.py`):**
+```python
+@router.post("/rag", response_model=RAGResponse)
+def rag_endpoint(request: RAGRequest):
+    answer = rag_pipeline(request.query, qdrant_client)
+    return RAGResponse(answer=answer)
+```
+
+**Called from UI (`apps/chatbot_ui/src/chatbot_ui/app.py`):**
+```python
+response = requests.post(
+    "http://api:8000/rag",
+    json={"query": user_input}
+)
+```
+
+### Key Differences: Notebooks vs Apps
+
+| Aspect | Notebooks | Apps |
+|--------|-----------|------|
+| **Purpose** | Learning, experimentation | Production deployment |
+| **Structure** | Cells, linear flow | Modules, packages, APIs |
+| **Dependencies** | `uv sync --group dev` | Workspace-specific deps |
+| **Data** | Hardcoded paths | Environment variables |
+| **Error Handling** | Minimal | Comprehensive |
+| **Testing** | Manual, visual | Automated, CI/CD |
+| **Scalability** | Single user | Multi-user, concurrent |
+| **Deployment** | Not applicable | Docker, cloud-ready |
+
+### The Workflow in This Bootcamp
+
+```
+1. Learn in Notebooks
+   ├─ Experiment with concepts
+   ├─ Debug and iterate quickly
+   └─ Understand how things work
+
+2. Identify Production Patterns
+   ├─ Which code should be reused?
+   ├─ What needs configuration?
+   └─ How to structure for scale?
+
+3. Implement in Apps
+   ├─ Copy working code from notebooks
+   ├─ Add proper structure (modules, packages)
+   ├─ Add error handling and logging
+   ├─ Containerize with Docker
+   └─ Deploy as services
+
+4. Evaluate with Real Data
+   ├─ Use apps/api/evals/eval_retriever.py
+   ├─ Run RAGAS metrics on production code
+   └─ Monitor with LangSmith
+```
+
+### Why This Approach?
+
+**Notebooks are great for:**
+- ✅ Interactive learning
+- ✅ Visualizing data distributions
+- ✅ Testing LLM prompts
+- ✅ Debugging retrieval quality
+- ✅ Exploring metrics
+
+**But notebooks are bad for:**
+- ❌ Production deployment
+- ❌ API services
+- ❌ Multi-user applications
+- ❌ Version control (binary format)
+- ❌ Automated testing
+
+**Apps folder provides:**
+- ✅ Clean Python packages
+- ✅ REST API (FastAPI)
+- ✅ Web UI (Streamlit)
+- ✅ Docker deployment
+- ✅ Production observability
+- ✅ Proper dependency management
+
+### Apps Dependencies
+
+**Root `pyproject.toml`:** Base dependencies for notebooks
+```toml
+dependencies = [
+    "openai>=2.15.0",
+    "pydantic>=2.12.5",
+    "streamlit>=1.52.2",
+]
+```
+
+**`apps/api/pyproject.toml`:** Backend-specific
+```toml
+dependencies = [
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
+    "qdrant-client>=1.18.0",
+    "langsmith>=0.8.16",
+]
+```
+
+**`apps/chatbot_ui/pyproject.toml`:** Frontend-specific
+```toml
+dependencies = [
+    "streamlit>=1.52.2",
+]
+```
+
+**Install everything:**
+```bash
+uv sync --workspace --group dev
+```
+
+This installs:
+- Root dependencies (for notebooks)
+- API dependencies (for backend)
+- UI dependencies (for frontend)
+- Dev dependencies (for evaluation)
 
 ---
 
